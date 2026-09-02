@@ -1,0 +1,10 @@
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# task logs (user-specific)
+task-logs/
