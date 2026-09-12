@@ -8,3 +8,6 @@ Thumbs.db
 
 # task logs (user-specific)
 task-logs/
+
+# distilled experience (user-specific)
+experience/

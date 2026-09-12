@@ -1,24 +1,26 @@
 ---
 name: task-log
 description: >-
-  在 Agent 每次执行完任务后，自动生成结构化的任务执行时序记录，涵盖任务上下文、执行轨迹、
-  遇到的问题与解决方法、信息发现、验证结果等。当用户希望任务过程清晰可追查、便于回溯、
-  或抱怨 Agent 输出信噪比低难以阅读时，都应使用本 skill。核心目标：把隐式推理和试错过程
-  显式化，让每次任务执行都留下可检索、可复用的知识沉淀。
+  任务日志 skill，四种模式。①记录：任务结束后生成结构化执行日志（上下文、轨迹、问题与解决、
+  信息发现、验证）；②回顾：按主题或全量检索历史日志并总结（重复问题、失败方案、候选经验）；
+  ③固化：把可复用结论提炼为经验条目，维护 experience/EXPERIENCE.md 主经验文件与 temp 明细；
+  ④整合：清理过期经验、合并重复、压缩主文件。当用户要求记录任务、回顾/复盘历史工作、
+  总结经验沉淀知识，或抱怨 Agent 输出信噪比低难以回溯时使用。
 license: MIT
 compatibility: 适用于任意支持文件读写的 Agent 环境（Claude Code、opencode 等）
 metadata:
   author: 1Zero2four
-  version: "1.1"
+  version: "1.2"
   language: zh-CN
-allowed-tools: Read Write Edit Glob Grep Bash
+allowed-tools: Read Write Edit Glob Grep
 ---
 
 # Task Log — 任务执行时序记录
 
 ## 概述
 
-本 skill 指导 Agent 在任务执行完毕（或中断、失败）后，基于模板生成一份结构化的任务日志。
+本 skill 默认指导 Agent 在任务执行完毕（或中断、失败）后，基于模板生成一份结构化的任务日志；
+并提供回顾历史日志、固化经验库、整合清理三个扩展模式（见「四种模式」）。
 日志同时服务于两个目的：
 
 1. **人类可读**：用高信噪比的格式替代 Agent 原始输出的冗长过程
@@ -26,13 +28,30 @@ allowed-tools: Read Write Edit Glob Grep Bash
 
 ## 何时触发
 
-在以下时机生成本次任务的日志：
+按用户意图进入对应模式：
 
-- 用户显式要求「记录任务」「整理过程」「写日志」
-- 任务完成后自动触发（需用户在 Agent 配置中设定本 skill 为 post-task hook）
+- 「记录任务」「整理过程」「写日志」→ 记录模式（默认）
+- 「回顾」「复盘」「查历史日志」「这个主题以前怎么处理的」→ 回顾模式
+- 「总结经验」「沉淀经验」「把教训存下来」→ 固化模式
+- 「整合经验」「清理经验」→ 整合模式
+- 任务完成后自动触发记录（需用户在 Agent 配置中设定本 skill 为 post-task hook）
 - 任务失败或中途取消时，记录已执行部分
 
-## 工作流程
+## 四种模式
+
+| 模式 | 触发 | 加载文件 | 产出 |
+|------|------|----------|------|
+| 记录（默认） | 记录/写日志 | `assets/TEMPLATE.md`（+`references/RECORDING_GUIDE.md` 按需） | `task-logs/TASK-*.md` |
+| 回顾 | 回顾/复盘/查历史 | `references/REVIEW_GUIDE.md` | 聊天内总结报告（不写文件） |
+| 固化 | 总结经验文件 | `references/REVIEW_GUIDE.md` + `assets/TEMPLATE-EXP.md`（新建主文件时加 `assets/TEMPLATE-EXPERIENCE.md`） | `experience/EXPERIENCE.md` + `experience/temp/EXP-*.md` |
+| 整合 | 整合/清理经验 | `references/CONSOLIDATE_GUIDE.md`（重写主文件时加 `assets/TEMPLATE-EXPERIENCE.md`） | 更新主经验文件、清理 temp |
+
+- 「总结一下」类模糊请求 → 先回顾，报告末尾列候选并询问是否固化
+- 固化产物分两层：`experience/EXPERIENCE.md` 是主经验文件（运行时参考入口，类似 AGENTS.md 的作用）；明细条目暂存于 `experience/temp/`
+- 回顾/固化/整合不改变日志记录流程；记录模式的六步流程与五条原则不变
+- 各模式共用的检索协议（tags、front-matter、命名规范）见 `references/REVIEW_GUIDE.md`
+
+## 记录模式：工作流程
 
 ### 第 1 步：确定日志存放位置
 
@@ -40,7 +59,7 @@ allowed-tools: Read Write Edit Glob Grep Bash
 - 文件命名：`TASK-{编号}-{简短slug}.md`，如 `TASK-0007-fix-login-bug.md`
 - **路径约束**：日志文件必须且只能写在 `task-logs/` 目录内，使用相对路径，禁止包含 `..` 等路径遍历片段
 - **slug 校验**：slug 只能包含小写字母、数字、连字符（`-`）和下划线（`_`），长度不超过 50 字符
-- 若 `task-logs/` 不存在，通过文件写入工具自动创建（避免不必要的 Bash 调用）
+- 若 `task-logs/` 不存在，通过文件写入工具自动创建（避免不必要的命令行调用）
 - **编号规则**：使用 `Glob` 匹配 `task-logs/TASK-*.md`，按文件名排序提取最大编号后 +1；若无已有日志则从 `0001` 开始。若目标文件名已存在，继续递增编号直至可用
 
 ### 第 2 步：读取模板
@@ -110,9 +129,11 @@ assets/TEMPLATE.md
 
 执行本 skill 时：
 
-1. **必读**：`assets/TEMPLATE.md` — 日志骨架
-2. **按需读**：`references/RECORDING_GUIDE.md` — 仅在遇到填写歧义、不确定某章节如何填写时加载，**不要每次执行都全量读取**
-3. `SKILL.md` 本身已包含各原则的要点，通常无需加载引用文件即可完成填写
+1. **记录模式**：必读 `assets/TEMPLATE.md` — 日志骨架；`references/RECORDING_GUIDE.md` 仅在遇到填写歧义、不确定某章节如何填写时加载，**不要每次执行都全量读取**
+2. **回顾模式**：必读 `references/REVIEW_GUIDE.md`，不加载任何模板
+3. **固化模式**：必读 `references/REVIEW_GUIDE.md`；写条目时读 `assets/TEMPLATE-EXP.md`；新建主文件时读 `assets/TEMPLATE-EXPERIENCE.md`
+4. **整合模式**：必读 `references/CONSOLIDATE_GUIDE.md`；重写主文件时读 `assets/TEMPLATE-EXPERIENCE.md`
+5. `SKILL.md` 本身已包含各原则的要点，通常无需加载额外引用文件即可完成填写
 
 ## 输入与输出示例
 
@@ -162,4 +183,6 @@ task-logs/TASK-0007-fix-login-bug.md
 ## 详细参考
 
 如需了解各章节的设计理由和填写细则，参阅：
-- [references/RECORDING_GUIDE.md](references/RECORDING_GUIDE.md) — 逐章节填写指南与好坏示例对照
+- [references/RECORDING_GUIDE.md](references/RECORDING_GUIDE.md) — 记录模式：逐章节填写指南与好坏示例对照
+- [references/REVIEW_GUIDE.md](references/REVIEW_GUIDE.md) — 回顾与固化：检索协议、报告结构、经验库规范
+- [references/CONSOLIDATE_GUIDE.md](references/CONSOLIDATE_GUIDE.md) — 整合：清理过期经验、合并重复、压缩主文件

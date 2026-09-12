@@ -4,6 +4,8 @@
 
 record-what-happened 是一个 Agent Skill。它让编码 Agent（opencode、Claude Code、Cursor 这类）在每个任务结束时写一份结构化日志：做了哪些步骤，哪里出了问题，怎么改的，以及试过但没用的方案。日志统一放在项目根目录的 `task-logs/` 下。
 
+它还支持按需回顾历史日志、把可复用的教训固化成经验库，以及在经验过期时整合清理。
+
 这样你事后能快速看清 Agent 做了什么，不用翻它的原始输出；Agent 下次开工先读历史日志，也能知道哪些路走不通，不必重复。失败记录尤其有用：Agent 试过又放弃的方案，往往正是最该留下的信息。
 
 每份日志都是固定的 6 个章节：
@@ -22,6 +24,25 @@ task-logs/
 └── TASK-0003-add-export-feature.md
 ```
 
+## 四种模式
+
+| 模式 | 作用 | 产出 |
+|------|------|------|
+| 记录（默认） | 任务结束后生成结构化日志 | `task-logs/TASK-*.md` |
+| 回顾 | 按主题或全量检索历史日志并总结 | 聊天内报告，不写文件 |
+| 固化 | 把可复用结论提炼为经验条目 | `experience/EXPERIENCE.md` + `experience/temp/EXP-*.md` |
+| 整合 | 剔除过期、合并重复、压缩主经验文件 | 更新后的经验库 |
+
+经验库分两层：
+
+```
+experience/
+├── EXPERIENCE.md          # 主经验文件：精炼、可执行，运行时参考（类似 AGENTS.md 的作用）
+└── temp/                  # 逐条明细与依据，整合吸收后可删除
+```
+
+想让 Agent 在日常任务里自动参考，可在项目的 `AGENTS.md`（或 `CLAUDE.md`）里引用 `experience/EXPERIENCE.md`。`task-logs/` 与 `experience/` 都是用户数据，建议加入你项目自己的 `.gitignore`。
+
 ## 安装
 
 ### 项目级（推荐）
@@ -35,9 +56,13 @@ your-project/
         └── task-log/
             ├── SKILL.md
             ├── assets/
-            │   └── TEMPLATE.md
+            │   ├── TEMPLATE.md
+            │   ├── TEMPLATE-EXP.md
+            │   └── TEMPLATE-EXPERIENCE.md
             └── references/
-                └── RECORDING_GUIDE.md
+                ├── RECORDING_GUIDE.md
+                ├── REVIEW_GUIDE.md
+                └── CONSOLIDATE_GUIDE.md
 ```
 
 ### 全局（所有项目共享）
@@ -61,6 +86,8 @@ your-project/
 
 Agent 会在 `task-logs/` 下生成日志，并告诉你文件路径。
 
+其他模式同理：回顾（「回顾一下登录相关的日志」）、固化（「把经验固化下来」）、整合（「整合一下经验库」）。
+
 ### 自动触发
 
 在 opencode 里把本 skill 配成任务结束后的 hook，即可每次任务自动生成。配置方式见 [opencode 文档](https://opencode.ai)。
@@ -71,14 +98,18 @@ Skill 按需加载文件，而不是一次全读，以控制上下文占用：
 
 ```
 skill/
-├── SKILL.md                # 激活时加载，约 165 行：触发条件、6 步流程、记录原则
+├── SKILL.md                    # 激活时加载，约 190 行：四种模式、记录流程、记录原则
 ├── assets/
-│   └── TEMPLATE.md         # 写日志时加载，约 148 行：6 章节骨架加 front-matter
+│   ├── TEMPLATE.md             # 日志骨架，约 148 行：6 章节加 front-matter
+│   ├── TEMPLATE-EXP.md         # 经验条目骨架，约 32 行
+│   └── TEMPLATE-EXPERIENCE.md  # 主经验文件骨架，约 21 行
 └── references/
-    └── RECORDING_GUIDE.md  # 用到才加载，约 170 行：逐章节填写指南
+    ├── RECORDING_GUIDE.md      # 记录模式按需加载，约 180 行：逐章节填写指南
+    ├── REVIEW_GUIDE.md         # 回顾/固化模式加载，约 250 行：检索协议、报告结构、经验库规范
+    └── CONSOLIDATE_GUIDE.md    # 仅整合模式加载，约 60 行：整合清理原则
 ```
 
-Agent 先读 `SKILL.md`，写日志时取模板，只有某章节不确定怎么填时才查参考指南。
+Agent 先读 `SKILL.md`，然后只加载当前模式需要的引用与模板文件。
 
 记录时遵循五条原则：
 
